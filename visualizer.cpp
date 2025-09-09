@@ -38,9 +38,9 @@ int main(int argc, char* argv[]) {
     }
 
     outFile << R"(
-#include "./include/GL/glew.h"
-#include "./include/GLFW/glfw3.h"
-#include "./include/ft2build.h"
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <ft2build.h>
 #include FT_FREETYPE_H
 #include <string>
 #include <vector>
@@ -55,10 +55,12 @@ struct Character {
 
 std::vector<Character> characters(128);
 
+GLuint VAO, VBO;
+
 void render_text(GLuint shaderProgram, const std::string& text, float x, float y, float scale, float r, float g, float b) {
     glUniform3f(glGetUniformLocation(shaderProgram, "textColor"), r, g, b);
     glActiveTexture(GL_TEXTURE0);
-    glBindVertexArray(characters[0].textureID ? characters[0].textureID : 0);
+    glBindVertexArray(VAO);
 
     for (char c : text) {
         Character ch = characters[c];
@@ -77,7 +79,7 @@ void render_text(GLuint shaderProgram, const std::string& text, float x, float y
         };
 
         glBindTexture(GL_TEXTURE_2D, ch.textureID);
-        glBindBuffer(GL_ARRAY_BUFFER, characters[0].textureID ? characters[0].textureID : 0);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         x += (ch.advance >> 6) * scale;
@@ -118,7 +120,7 @@ int main() {
     }
 
     FT_Face face;
-    if (FT_New_Face(ft, "arial.ttf", 0, &face)) {
+    if (FT_New_Face(ft, "C:\\Windows\\Fonts\\arial.ttf", 0, &face)) {
         std::cerr << "ERROR::FREETYPE: Failed to load font 'arial.ttf'" << std::endl;
         FT_Done_FreeType(ft);
         glfwTerminate();
@@ -153,7 +155,6 @@ int main() {
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
 
-    GLuint VAO, VBO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glBindVertexArray(VAO);
@@ -232,6 +233,7 @@ int main() {
 
     glUseProgram(shaderProgram);
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, projection);
+    glUniform1i(glGetUniformLocation(shaderProgram, "text"), 0);
 
     std::vector<std::string> textLines = {
 )";
@@ -243,11 +245,11 @@ int main() {
     outFile << R"(
     };
 
-    float yPos = 500.0f;
     while (!glfwWindowShouldClose(window)) {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        float yPos = 500.0f;
         for (const auto& text : textLines) {
             render_text(shaderProgram, text, 10.0f, yPos, 0.5f, 1.0f, 1.0f, 1.0f);
             yPos -= 50.0f;
@@ -269,7 +271,7 @@ int main() {
     outFile.close();
     std::cout << "Generated C++ source file: generated_output.cpp" << std::endl;
 
-    std::string compileCommand = "g++ -o generated_output.exe generated_output.cpp -std=c++17 -I include -L lib -lglfw3 -lglew32 -lopengl32 -lfreetype";
+    std::string compileCommand = "g++ generated_output.cpp -o generated_output.exe -lglfw -lglew -lfreetype -lopengl32 -lgdi32";
     int result = std::system(compileCommand.c_str());
     if (result == 0) {
         std::cout << "Successfully generated and compiled binary: generated_output.exe" << std::endl;

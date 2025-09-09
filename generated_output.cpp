@@ -1,7 +1,6 @@
-
-#include "./include/GL/glew.h"
-#include "./include/GLFW/glfw3.h"
-#include "./include/ft2build.h"
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <ft2build.h>
 #include FT_FREETYPE_H
 #include <string>
 #include <vector>
@@ -15,13 +14,20 @@ struct Character {
 };
 
 std::vector<Character> characters(128);
+GLuint VAO, VBO;
 
 void render_text(GLuint shaderProgram, const std::string& text, float x, float y, float scale, float r, float g, float b) {
     glUniform3f(glGetUniformLocation(shaderProgram, "textColor"), r, g, b);
     glActiveTexture(GL_TEXTURE0);
-    glBindVertexArray(characters[0].textureID ? characters[0].textureID : 0);
+    glBindVertexArray(VAO);
+
+    std::cout << "Rendering text: " << text << " at (" << x << ", " << y << "), scale: " << scale << std::endl;
 
     for (char c : text) {
+        if (c >= 128 || characters[c].textureID == 0) {
+            std::cerr << "Warning: Invalid or unloaded character '" << c << "' (ASCII: " << (int)c << ")" << std::endl;
+            continue;
+        }
         Character ch = characters[c];
         float xpos = x + ch.bearingX * scale;
         float ypos = y - (ch.height - ch.bearingY) * scale;
@@ -38,7 +44,7 @@ void render_text(GLuint shaderProgram, const std::string& text, float x, float y
         };
 
         glBindTexture(GL_TEXTURE_2D, ch.textureID);
-        glBindBuffer(GL_ARRAY_BUFFER, characters[0].textureID ? characters[0].textureID : 0);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         x += (ch.advance >> 6) * scale;
@@ -71,6 +77,10 @@ int main() {
         return -1;
     }
 
+    // Print OpenGL version for debugging
+    const GLubyte* version = glGetString(GL_VERSION);
+    std::cout << "OpenGL Version: " << (version ? reinterpret_cast<const char*>(version) : "Unknown") << std::endl;
+
     FT_Library ft;
     if (FT_Init_FreeType(&ft)) {
         std::cerr << "ERROR::FREETYPE: Could not init FreeType Library" << std::endl;
@@ -79,8 +89,8 @@ int main() {
     }
 
     FT_Face face;
-    if (FT_New_Face(ft, "arial.ttf", 0, &face)) {
-        std::cerr << "ERROR::FREETYPE: Failed to load font 'arial.ttf'" << std::endl;
+    if (FT_New_Face(ft, "./arial.ttf", 0, &face)) {
+        std::cerr << "ERROR::FREETYPE: Failed to load font './arial.ttf'" << std::endl;
         FT_Done_FreeType(ft);
         glfwTerminate();
         return -1;
@@ -90,7 +100,7 @@ int main() {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     for (unsigned char c = 0; c < 128; c++) {
         if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
-            std::cerr << "ERROR::FREETYPE: Failed to load Glyph " << c << std::endl;
+            std::cerr << "ERROR::FREETYPE: Failed to load Glyph '" << c << "' (ASCII: " << (int)c << ")" << std::endl;
             continue;
         }
         GLuint texture;
@@ -110,11 +120,11 @@ int main() {
             face->glyph->advance.x
         };
         characters[c] = character;
+        std::cout << "Loaded glyph '" << c << "' (width: " << character.width << ", height: " << character.height << ")" << std::endl;
     }
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
 
-    GLuint VAO, VBO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glBindVertexArray(VAO);
@@ -151,9 +161,11 @@ int main() {
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
     GLint success;
+    char infoLog[512];
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
     if (!success) {
-        std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED" << std::endl;
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
         glfwTerminate();
         return -1;
     }
@@ -163,7 +175,8 @@ int main() {
     glCompileShader(fragmentShader);
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
     if (!success) {
-        std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED" << std::endl;
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
         glfwTerminate();
         return -1;
     }
@@ -174,7 +187,8 @@ int main() {
     glLinkProgram(shaderProgram);
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success) {
-        std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED" << std::endl;
+        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+        std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
         glfwTerminate();
         return -1;
     }
@@ -193,19 +207,19 @@ int main() {
 
     glUseProgram(shaderProgram);
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, projection);
+    glUniform1i(glGetUniformLocation(shaderProgram, "text"), 0);
 
     std::vector<std::string> textLines = {
         "hello world!!!",
         "my name is tiago and i am 37 years old!!!",
         "nice to meet you    !!!"
-
     };
 
-    float yPos = 500.0f;
     while (!glfwWindowShouldClose(window)) {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        float yPos = 500.0f;
         for (const auto& text : textLines) {
             render_text(shaderProgram, text, 10.0f, yPos, 0.5f, 1.0f, 1.0f, 1.0f);
             yPos -= 50.0f;
